@@ -54,6 +54,15 @@ class Acceptance(Node):
             time.sleep(0.1)
         return False
 
+    def wait_command_subscriber(self, timeout=15.0):
+        """Wait until twist_mux has discovered this transient test publisher."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._pub.get_subscription_count() > 0:
+                return True
+            time.sleep(0.1)
+        return False
+
     def command(self, vx=0.0, vy=0.0, wz=0.0, seconds=1.4):
         msg = TwistStamped()
         msg.header.frame_id = 'base_footprint'
@@ -142,7 +151,14 @@ def main():
     ok = node.wait_odom()
     if not ok:
         print('FAIL  /ground_truth/odom alınamadı')
+    elif not node.wait_command_subscriber():
+        print('FAIL  /cmd_vel_teleop twist_mux aboneliği bulunamadı')
+        ok = False
     else:
+        # DDS endpoint eslesmesinden sonra sifir komutla mux/smoother zincirini
+        # isit. Aksi halde hizli CI runner durumlarinda ilk hareket komutu,
+        # subscriber eslesmesi tamamlanirken kaybolabiliyor.
+        node.command(seconds=0.5)
         for name, vx, vy, wz in [
             ('ileri', 0.12, 0.0, 0.0), ('geri', -0.12, 0.0, 0.0),
             ('sola', 0.0, 0.12, 0.0), ('sağa', 0.0, -0.12, 0.0),

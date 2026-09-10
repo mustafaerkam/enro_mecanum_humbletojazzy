@@ -35,34 +35,109 @@ cleanup() {
 }
 trap cleanup EXIT
 
+FAILED=0
+pass() { echo "PASS  $1"; }
+fail() {
+  echo "FAIL  $1"
+  if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+    printf '::error title=Real mock %s::%s\n' "$PROFILE" "$1"
+  fi
+  FAILED=1
+}
+
+launch_alive() { kill -0 "$LAUNCH_PID" 2>/dev/null; }
+
+wait_controller_active() {
+  local controller="$1" controllers
+  for _ in $(seq 1 "$TIMEOUT_READY"); do
+    controllers="$(timeout 10 ros2 control list_controllers 2>/dev/null || true)"
+    if grep -q "${controller}.*active" <<<"$controllers"; then
+      return 0
+    fi
+    launch_alive || return 1
+    sleep 1
+  done
+  return 1
+}
+
+wait_topic_message() {
+  local topic="$1"
+  # --no-daemon eski smoke oturumundan kalabilecek graph onbellegini devre
+  # disi birakir. best_available, publisher'in gercek QoS profilini secer;
+  # robot_description icin transient_local veriyi de boyle alabiliriz.
+  for _ in $(seq 1 6); do
+    if ros2 topic echo "$topic" --once --no-daemon --spin-time 2 \
+         --qos-profile best_available --timeout 8 >/dev/null 2>&1; then
+      return 0
+    fi
+    launch_alive || return 1
+  done
+  return 1
+}
+
+wait_node() {
+  local node="$1"
+  local nodes
+  for _ in $(seq 1 "${NODE_WAIT:-60}"); do
+    nodes="$(timeout 10 ros2 node list --no-daemon --spin-time 2 \
+      2>/dev/null || true)"
+    if grep -Fxq "/$node" <<<"$nodes"; then
+      return 0
+    fi
+    launch_alive || return 1
+    sleep 1
+  done
+  return 1
+}
+
 setsid ros2 launch mecanum_bringup "$LAUNCH" transport:=mock feedback_mode:=required \
   >"$LOG_DIR/launch.log" 2>&1 &
 LAUNCH_PID=$!
-sleep 8
+sleep 3
 
-for _ in $(seq 1 "$TIMEOUT_READY"); do
-  if ros2 control list_controllers 2>/dev/null | grep -q 'mecanum_drive_controller.*active'; then
-    break
-  fi
-  kill -0 "$LAUNCH_PID" 2>/dev/null || { tail -50 "$LOG_DIR/launch.log"; exit 1; }
-  sleep 1
+if wait_controller_active mecanum_drive_controller; then
+  pass 'mecanum_drive_controller active'
+else
+  fail "mecanum_drive_controller ${TIMEOUT_READY} s icinde active olmadi"
+  tail -60 "$LOG_DIR/launch.log"
+  exit 1
+fi
+
+for controller in joint_state_broadcaster; do
+  wait_controller_active "$controller" \
+    && pass "$controller active" \
+    || fail "$controller active degil"
 done
 
-FAILED=0
-check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; FAILED=1; fi; }
-check 'mecanum_drive_controller active' "ros2 control list_controllers 2>/dev/null | grep -q 'mecanum_drive_controller.*active'"
-check 'joint_state_broadcaster active' "ros2 control list_controllers 2>/dev/null | grep -q 'joint_state_broadcaster.*active'"
-check '/joint_states yayınlanıyor' "timeout 15 ros2 topic echo /joint_states --once >/dev/null 2>&1"
-check '/wheel/odometry yayınlanıyor' "timeout 15 ros2 topic echo /wheel/odometry --once >/dev/null 2>&1"
-check '/robot_description yayınlanıyor' "timeout 15 ros2 topic echo /robot_description --once >/dev/null 2>&1"
+for topic in /joint_states /wheel/odometry /robot_description; do
+  wait_topic_message "$topic" \
+    && pass "$topic yayinlaniyor" \
+    || fail "$topic bekleme suresinde yayinlanmadi"
+done
 
+# Bu profil fiziksel LiDAR/IMU ve RViz'den verilen ilk pozu kasitli olarak
+# icermez. Dolayisiyla planner gibi Nav2 dugumleri 'inactive' kalabilir; bu
+# donanimsiz testte dogru sozlesme, surecin graph'ta hazir olmasidir. Tam
+# lifecycle aktivasyonu sim smoke ve gercek arac kabul testinde dogrulanir.
 if [ "$PROFILE" = nav ]; then
-  for node in map_server amcl controller_server planner_server bt_navigator; do
-    check "$node çalışıyor" "ros2 node list 2>/dev/null | grep -qx '/$node'"
+  for node in map_server amcl controller_server planner_server bt_navigator \
+              behavior_server velocity_smoother collision_monitor; do
+    if wait_node "$node"; then
+      pass "$node calisiyor"
+    else
+      fail "$node ${NODE_WAIT:-60} s icinde graph'ta gorunmedi"
+    fi
   done
 else
-  check 'slam_toolbox çalışıyor' "ros2 node list 2>/dev/null | grep -qx '/slam_toolbox'"
+  for node in slam_toolbox velocity_smoother collision_monitor; do
+    if wait_node "$node"; then
+      pass "$node calisiyor"
+    else
+      fail "$node ${NODE_WAIT:-60} s icinde graph'ta gorunmedi"
+    fi
+  done
 fi
 
 echo "REAL MOCK ($PROFILE): $([ "$FAILED" = 0 ] && echo PASS || echo FAIL)"
+[ "$FAILED" = 0 ] || tail -60 "$LOG_DIR/launch.log"
 exit "$FAILED"
