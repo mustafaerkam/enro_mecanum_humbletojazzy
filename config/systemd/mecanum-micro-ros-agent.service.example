@@ -1,0 +1,14 @@
+[Unit]
+Description=Mecanum micro-ROS serial agent
+After=network.target dev-mecanum_esp32.device
+Requires=dev-mecanum_esp32.device
+[Service]
+Type=simple
+User=CALIBRATION_REQUIRED
+Environment=ROS_DOMAIN_ID=42
+Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash && exec ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/mecanum_esp32 -b 921600'
+Restart=on-failure
+RestartSec=2
+[Install]
+WantedBy=multi-user.target

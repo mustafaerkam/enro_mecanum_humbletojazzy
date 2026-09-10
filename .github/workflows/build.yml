@@ -1,0 +1,156 @@
+name: ROS 2 Jazzy CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  native-ubuntu-24:
+    name: Native Ubuntu 24.04 / ROS 2 Jazzy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out fresh source
+        uses: actions/checkout@v5
+
+      - name: Install native ROS 2 Jazzy
+        uses: ros-tooling/setup-ros@0.7.19
+        with:
+          required-ros-distributions: jazzy
+
+      - name: Install dependencies and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/build_jazzy.sh
+
+      - name: Test workspace
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install_jazzy/setup.bash
+          set -euo pipefail
+          colcon --log-base log_jazzy_test test \
+            --build-base build_jazzy \
+            --install-base install_jazzy \
+            --event-handlers console_cohesion+
+          colcon test-result --test-result-base build_jazzy --verbose
+
+      - name: Static contracts and robot description
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install_jazzy/setup.bash
+          set -euo pipefail
+          python3 src/mecanum_testing/mecanum_testing/contract_audit.py --workspace .
+          xacro src/mecanum_robot_description/urdf/sim_robot.xacro > /tmp/mecanum.urdf
+          check_urdf /tmp/mecanum.urdf
+
+  build-and-test:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base-noble@sha256:386d06ec6d4188f731bae5678e07b4cb64a4e4d4152090c0bd1f881dcf7706f5
+    timeout-minutes: 45
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      # GitHub runner'inda GPU yoktur. Headless sim 'gz sim -s' ile calisir
+      # ama Sensors eklentisi LiDAR'i ogre2 ile RENDER eder ve calisan bir GL
+      # baglami ister. Yazilim rasterizer'a (llvmpipe) zorlariz.
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      GALLIUM_DRIVER: llvmpipe
+      MESA_GL_VERSION_OVERRIDE: "3.3"
+      ROS_LOCALHOST_ONLY: "1"
+      RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Install package dependencies
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          set -euo pipefail
+          apt-get update
+          apt-get install -y \
+            python3-colcon-common-extensions \
+            libgl1-mesa-dri \
+            libglx-mesa0 \
+            mesa-utils
+          rosdep update --rosdistro jazzy
+          rosdep install \
+            --from-paths src \
+            --ignore-src \
+            --rosdistro jazzy \
+            -y
+          rosdep check --from-paths src --ignore-src --rosdistro jazzy
+
+      - name: Build workspace
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          set -euo pipefail
+          colcon --log-base log_jazzy build \
+            --build-base build_jazzy \
+            --install-base install_jazzy \
+            --event-handlers console_cohesion+ \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+      - name: Static contracts and robot description
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install_jazzy/setup.bash
+          set -euo pipefail
+          python3 -m compileall -q src
+          python3 src/mecanum_testing/mecanum_testing/contract_audit.py --workspace .
+          xacro src/mecanum_robot_description/urdf/sim_robot.xacro > /tmp/mecanum.urdf
+          check_urdf /tmp/mecanum.urdf
+
+      - name: Test workspace
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install_jazzy/setup.bash
+          set -euo pipefail
+          colcon --log-base log_jazzy_test test \
+            --build-base build_jazzy \
+            --install-base install_jazzy \
+            --event-handlers console_cohesion+
+          colcon test-result --test-result-base build_jazzy --verbose
+
+      # Runtime smoke: statik testler (contract_audit, check_urdf) iki gercek
+      # port hatasini YAKALAYAMADI; ikisi de yalnizca calisma zamaninda
+      # gorunuyordu (fdir1 friction frame, slam_toolbox lifecycle). Bu adim
+      # gercek bir headless simulasyon acar.
+      - name: Runtime smoke - nav profili
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install_jazzy/setup.bash
+          set -euo pipefail
+          ./scripts/smoke_jazzy.sh nav
+
+      - name: Runtime smoke - mapping profili (SLAM + harita kaydetme)
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install_jazzy/setup.bash
+          set -euo pipefail
+          ./scripts/smoke_jazzy.sh mapping
+
+      - name: Real launch smoke - mock transport
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install_jazzy/setup.bash
+          set -euo pipefail
+          ./scripts/smoke_real_mock.sh nav
+          ./scripts/smoke_real_mock.sh mapping
+
+      - name: Upload smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs
+          path: /tmp/mecanum_smoke*/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,57 @@
+FROM ros:jazzy-ros-base-noble@sha256:386d06ec6d4188f731bae5678e07b4cb64a4e4d4152090c0bd1f881dcf7706f5
+
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+ARG USER_NAME=ros
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git \
+      python3-colcon-common-extensions \
+      python3-rosdep \
+      sudo \
+      ros-jazzy-desktop \
+      ros-jazzy-gz-ros2-control \
+      ros-jazzy-navigation2 \
+      ros-jazzy-nav2-bringup \
+      ros-jazzy-robot-localization \
+      ros-jazzy-rplidar-ros \
+      ros-jazzy-ros-gz \
+      ros-jazzy-slam-toolbox \
+      ros-jazzy-twist-mux \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ros-jazzy-joint-state-publisher-gui \
+      ros-jazzy-mecanum-drive-controller \
+      ros-jazzy-ros2-control \
+      ros-jazzy-ros2-controllers \
+      ros-jazzy-ros2controlcli \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    if getent group "${GROUP_ID}" >/dev/null; then \
+      EXISTING_GROUP="$(getent group "${GROUP_ID}" | cut -d: -f1)"; \
+    else \
+      groupadd --gid "${GROUP_ID}" "${USER_NAME}"; \
+      EXISTING_GROUP="${USER_NAME}"; \
+    fi; \
+    if getent passwd "${USER_ID}" >/dev/null; then \
+      EXISTING_USER="$(getent passwd "${USER_ID}" | cut -d: -f1)"; \
+      if [ "${EXISTING_USER}" != "${USER_NAME}" ]; then \
+        usermod --login "${USER_NAME}" --home "/home/${USER_NAME}" --move-home "${EXISTING_USER}"; \
+      fi; \
+      usermod --gid "${EXISTING_GROUP}" --shell /bin/bash "${USER_NAME}"; \
+    else \
+      useradd --uid "${USER_ID}" --gid "${EXISTING_GROUP}" --create-home --shell /bin/bash "${USER_NAME}"; \
+    fi; \
+    echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${USER_NAME}"; \
+    chmod 0440 "/etc/sudoers.d/${USER_NAME}"
+
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+USER ${USER_NAME}
+WORKDIR /workspace
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bash"]

@@ -1,0 +1,21 @@
+services:
+  jazzy:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.jazzy
+      args:
+        USER_ID: ${USER_ID:-1000}
+        GROUP_ID: ${GROUP_ID:-1000}
+    image: enro-mecanum:jazzy
+    network_mode: host
+    environment:
+      DISPLAY: ${DISPLAY:-:0}
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      ROS_LOCALHOST_ONLY: ${ROS_LOCALHOST_ONLY:-1}
+    volumes:
+      - .:/workspace
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    stdin_open: true
+    tty: true
+    command: bash

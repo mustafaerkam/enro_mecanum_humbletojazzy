@@ -1,0 +1,32 @@
+schema_version: 1
+vehicle_id: reference_mecanum_v1
+geometry:
+  wheel_radius_m: 0.1625
+  wheelbase_m: 0.80
+  wheel_separation_m: 1.08
+  controller_lx_plus_ly_m: 0.94
+drivetrain:
+  wheel_order: [fl, fr, rl, rr]
+  motor_sign: CALIBRATION_REQUIRED
+  encoder_sign: CALIBRATION_REQUIRED
+limits:
+  configured_linear_x_m_s: 0.5
+  configured_linear_y_m_s: 0.5
+  configured_angular_z_rad_s: 1.2
+  command_timeout_ms: 500
+  validated_real_vehicle_limits: CALIBRATION_REQUIRED
+devices:
+  esp32: /dev/mecanum_esp32
+  lidar: /dev/mecanum_lidar
+  esp32_usb_identity: CALIBRATION_REQUIRED
+  lidar_usb_identity: CALIBRATION_REQUIRED
+  lidar_model: RPLIDAR A1M8
+  lidar_driver_package: rplidar_ros
+  lidar_baud: 115200
+  micro_ros_baud: 921600
+sensors:
+  simulated_lidar_rate_hz: 10.0
+  simulated_lidar_samples: 640
+  lidar_min_range_m: 0.12
+  lidar_max_range_m: 12.0
+  imu_mount_pose: CALIBRATION_REQUIRED

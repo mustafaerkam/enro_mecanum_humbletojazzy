@@ -1,0 +1,11 @@
+.git
+build*
+install*
+log*
+.colcon
+.pytest_cache
+__pycache__
+*.pyc
+*.bag
+*.db3
+*.mcap

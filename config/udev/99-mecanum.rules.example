@@ -1,0 +1,4 @@
+# Replace every CALIBRATION_REQUIRED value using `udevadm info --attribute-walk`.
+# Do not install this file with placeholders.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="CALIBRATION_REQUIRED", ATTRS{idProduct}=="CALIBRATION_REQUIRED", ATTRS{serial}=="CALIBRATION_REQUIRED", SYMLINK+="mecanum_esp32", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="CALIBRATION_REQUIRED", ATTRS{idProduct}=="CALIBRATION_REQUIRED", ATTRS{serial}=="CALIBRATION_REQUIRED", SYMLINK+="mecanum_lidar", GROUP="dialout", MODE="0660"
